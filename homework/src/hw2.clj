@@ -1,9 +1,6 @@
 (ns hw2
   (:require
             [   incanter.core :refer :all]
- ;;           [ incanter.charts :refer [ histogram set-x-range  xy-plot]]
-          ;;  [clojure.core.reducers :as r]
-;;            [clojure.core.async :as async ]
             [clojure.core.reducers :as r]
             [clojure.java.io :as io]
             [clojure.string :refer [ split]]))
@@ -52,17 +49,39 @@
     (reduce #( assoc-in %1 [ (nth %2 0) (nth %2 1)]   (nth %2 2))  {} (vals data)  )))
 
 
+;;not needed for this homework
 (defn myChoose [ n k]
   " the version in incanter will return infinity for large number"
-  (let [numerator (map bigdec  (range  (inc  ( - n k))  (inc n)))
-        denominator  (map bigdec  (range 1 (inc k)))]
-    (/  (reduce *  numerator ) (reduce *  denominator))))
+  (if (= k 1) n
+      (let [numerator (map bigdec  (range  (inc  ( - n k))  (inc n)))
+            denominator  (map bigdec  (range 1 (inc k)))]
+        (/  (reduce *  numerator ) (reduce *  denominator)))))
 
 (defn myFactorial
   " the version in incanter will return infinity for large number"
   [n]
-  (reduce *  (map bigdec  (range 1 (inc n))) )
-  )
+  (reduce *  (map bigdec  (range 1 (inc n))) ))
+
+
+
+(defn permutations
+  "different number of ways to arrange words
+ product of  (choose n k1) (choose (- n k1)  k2) (choose (- n k1 k2) k3) .....
+  "
+  [aMapColl ]
+  (let [ n (reduce + ( vals aMapColl ))
+        sortedData (sort-by val > aMapColl  )
+        ks     (map last sortedData)
+
+        nAndK     (loop [n n ks ks result []]
+                    (if (zero? n) result
+                        (recur   (- n (first ks)) (rest ks)  (conj result  [ n (first ks)]) ))
+                    )
+        ]
+
+    (reduce *  (pmap #( myChoose (first %) (last %)) nAndK))))
+
+
 
 
 ;;data
@@ -80,11 +99,13 @@
 
 
 
+
 ;;calcuations
+
 
 (def PY "MLE estimate of P(Y), where y corresponds to label id 1 to 20 "
   (memoize (fn [y]
-             (double  (/  (count  (for [ [ docId  label ]  trainLabel :when (= label y)] 0 ))     (count  trainLabel) )))))
+             (/  (count  (for [ [ docId  label ]  trainLabel :when (= label y)] 0 ))     (count  trainLabel) ))))
 
 
 (def  numTotalWordsInCategoryY
@@ -113,21 +134,42 @@
                     numerator  (+ l  (numWordXinCategoryY x y ))
 
                     denominator  (+   (* l J )  (numTotalWordsInCategoryY y))]
-                ;; (prn "numXAndY " numXAndY "numY" numY)
-                (with-precision 40  (/  (bigdec numerator) (bigdec denominator)  )) ))))
+
+                ;;   (with-precision 40  (/  (bigdec numerator) (bigdec denominator)  ))
+                (/ numerator denominator)
+                ))))
 
 
 (defn PYgivenX [testDataId ]
   (let  [currentDoc (get testData testDataId)
-         k    (count  currentDoc)  ;;number of different words shown up in a doc
-         n (reduce +  (vals currentDoc)) ;; number of total words shown up in a doc
-       ;; this is wrong!! -->  n (bigdec  numX)
          aSequenceOfPXgivenY  (fn [y] (flatten   (for [ [ x numX]   currentDoc]     (repeat  numX (PXgivenY x y))   )))
 
-         PYgivenXFn   (fn [y]  (double  (apply *      (myChoose n k )   ( aSequenceOfPXgivenY y)  )))
+         logPYPxGivenY   (fn [y]  (reduce +  (log (PY y)) (map log        ( aSequenceOfPXgivenY y))  ))
+         PYs (pmap logPYPxGivenY  (range 1 (inc  numY)) )
+         maxPy (apply max PYs)]
 
-         PYs (pmap PYgivenXFn (range 1 (inc  numY)) )
-         ]
+    (inc  (first   (filter #(not (nil? %) )     (map-indexed #(if ( =  %2 maxPy) %1)   PYs ))))))
 
-PYs
-))
+
+(defn analysisResult []
+  (let [
+        dummy (prn "generating results... first time pls be patient for 10 mins")
+        predictions   (pmap  #(PYgivenX %) (range 1 (inc (count testData))))
+        dummy (prn "results generated. 2nd time run will be way faster due to memorizing")
+        overAllaccuratePreditions (reduce +  (pmap #(if (= %1 %2) 1 0) predictions  (map last  (sort testLabel)) ))
+
+        ;; (Cfn i j ) return element for matrix C at position i j
+        ;; number of times a document with group trutch category j was classified as category i
+        Cfn  (memoize (fn [ classifiedCategory trueCategory ]
+                        (let [trueCategoryList  (pmap #(when ( = (last %) trueCategory)  (last  %)  )   (sort testLabel))  ;;filling nil for non current category
+
+                              classifiedList     (pmap #(when ( =  %   classifiedCategory) % )  predictions   )]
+                          (reduce +  (pmap    #(if  (and (not (nil? %1))  (= %1 %2) )  1 0)   trueCategoryList classifiedList)))))
+
+        ]
+
+    (prn "overAllaccuratePreditions " overAllaccuratePreditions "percentage " (double (/ overAllaccuratePreditions (count testLabel))) )
+    (matrix  (pmap #( Cfn (first %) (last %))   (for  [ i   (range 1 (inc numY)) j (range 1 (inc  numY))] [i j]))  numY)
+  )
+
+  )

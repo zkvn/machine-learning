@@ -128,24 +128,39 @@
 ;; check sum over X for a category is 1
 ;;(reduce +  (pmap   #(PXgivenY % 20) (range 1  (inc  (count X))) ))  --> should be about 1
 (def PXgivenY "MAP estimate P(X|Y), x corresponds to wordId x in [1 6xxxx], y corresponds to label id, y in [ 1 20] hNumerator: hallucinated numberator "
-  (fn [ x y & {:keys [hNumerator hDenominator ] :or {hNumerator 1  hDenominator numX}} ]
-    (let [
+  (memoize (fn [ x y & {:keys [hNumerator hDenominator ] :or {hNumerator 1  hDenominator numX}} ]
+             (let [
 
-          ;; v is {wordId count wordId count...} , k is docId
-          numerator  (+ hNumerator  (numWordXinCategoryY x y ))
+                   ;; v is {wordId count wordId count...} , k is docId
+                   numerator  (+ hNumerator  (numWordXinCategoryY x y ))
 
-          denominator  (+  hDenominator  (numTotalWordsInCategoryY y))]
+                   denominator  (+  hDenominator  (numTotalWordsInCategoryY y))]
 
-      ;;   (with-precision 40  (/  (bigdec numerator) (bigdec denominator)  ))
-      (/ numerator denominator)
-      )))
+               ;;   (with-precision 40  (/  (bigdec numerator) (bigdec denominator)  ))
+               (/ numerator denominator)
+               ))))
+
+(defn mostImportantFeatures "identifying most important features or word X "
+  []
+  ;;to be fnished
+  (let [
+        rangeX (range 1 (inc numX))
+        countofXSequence     (pmap  #(numWordXinCategoryY %  20 ) rangeX )
+        mostFrequenct (apply max countofXSequence)
+        x   (inc  (first   (filter #(not (nil? %) )     (map-indexed #(if ( =  %2 mostFrequenct) %1)  countofXSequence ))))
+        ]
+   (get X x)
+    )
+
+
+  )
 
 
 (def predictY
   "input testDataId, output category id "
   (memoize  (fn  [testDataId &  {:keys [hNumerator hDenominator ] :or {hNumerator 1  hDenominator numX}}   ]
               (let  [currentDoc (get testData testDataId)
-                     aSequenceOfPXgivenY  (fn [y] (flatten   (for [ [ x numX]   currentDoc]     (repeat  numX (PXgivenY x y))   )))
+                     aSequenceOfPXgivenY  (fn [y] (flatten   (for [ [ x numX]   currentDoc]     (repeat  numX (PXgivenY x y  :hNumerator  hNumerator :hDenominator hDenominator))   )))
 
                      logPYPxGivenY   (fn [y]  (reduce +  (log (PY y)) (map log        ( aSequenceOfPXgivenY y))  ))
                      PYs (pmap logPYPxGivenY  (range 1 (inc  numY)) )
@@ -175,6 +190,8 @@
         categoryIndices   (map first (sort Y))
 
         matrixResults  (matrix  (pmap #( Cfn (first %) (last %))   (for  [ i   (range 1 (inc numY)) j (range 1 (inc  numY))] [i j]))  numY)
+
+        ;;add category indices to 1st row and column of matrix for better printing
         matrixResultsWithHeader    (join-along  1  (map vector   (conj  categoryIndices 0 ))   (join    (matrix   [ categoryIndices])  matrixResults ))
 
 
@@ -192,9 +209,11 @@
     ( pm  matrixResultsWithHeader  {:formatter  (fn [x]  (if (number? x) (format "%5d" (int  x)) x)) })
 
     (accuracyFn 1 0.00001 )
+    (accuracyFn 0.00001  1 )
     (accuracyFn 1 1 )
     (accuracyFn 0 1 )
     (accuracyFn 0 0  )
+    (accuracyFn 100 1 )
   )
 
   )
